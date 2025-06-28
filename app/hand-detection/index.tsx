@@ -1,6 +1,13 @@
 import { useRef, useState, useEffect } from "react";
 import { FilesetResolver, HandLandmarker, DrawingUtils } from "@mediapipe/tasks-vision";
 
+const basicSeal = [{
+  name: "horse",
+  hand1: {},
+  hand2: {},
+
+}]
+
 export function HandDetection() {
 
   type HandLandmarkerType = Awaited<ReturnType<typeof HandLandmarker.createFromOptions>>;
@@ -38,10 +45,34 @@ export function HandDetection() {
     }
 
     if (webcamRunning) {
+      // If webcam is running, disable it
       setWebcamRunning(false);
-      return;
+      // Stop the video stream
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+      // Clear the canvas
+      const canvasCtx = canvasRef.current?.getContext("2d");
+      if (canvasCtx && canvasRef.current) {
+        canvasCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
     } else {
+      // If webcam is not running, enable it
       setWebcamRunning(true);
+      const constraints = { video: true };
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          // No need for onloadeddata here, predictWebcam will start in the requestAnimationFrame loop
+          // once video is ready and webcamRunning is true.
+        }
+      } catch (err) {
+        console.warn("getUserMedia() is not supported or permission denied.", err);
+        setWebcamRunning(false); // Reset if stream fails
+      }
     }
 
     const constraints = { video: true };
@@ -82,12 +113,14 @@ export function HandDetection() {
     const drawingUtils = new DrawingUtils(canvasCtx);
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-    if (resultsRef.current?.landmarks) {
+    if (resultsRef.current?.landmarks && resultsRef.current.landmarks.length > 0) {
       for (const landmarks of resultsRef.current.landmarks) {
-        drawingUtils.drawConnectors(landmarks, HandLandmarker.HAND_CONNECTIONS);
+        drawingUtils.drawConnectors(landmarks, HandLandmarker.HAND_CONNECTIONS, {
+          color: "#00FF00",
+          lineWidth: 5,});
         drawingUtils.drawLandmarks(landmarks);
       }
-      console.log(resultsRef.current.landmarks);
+      predictSeal(resultsRef.current.landmarks);
     }
     canvasCtx.restore();
 
@@ -96,27 +129,34 @@ export function HandDetection() {
     }
   };
 
-  useEffect(() => {
-    const setCanvasDimensions = () => {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (video && canvas) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-      }
-    };
+  const predictSeal = (hands: any) => {
+    // Example logic to predict a seal based on hand landmarks
+    const hand1 = hands[0];
+    const hand2 = hands.length > 1 ? hands[1] : null;
 
-    if (videoRef.current) {
-      videoRef.current.onloadedmetadata = setCanvasDimensions;
+    if (!hand1 || !hand2) {
+      console.log("Both hands must be detected.");
+      return;
     }
 
-    // Cleanup
-    return () => {
-      if (videoRef.current) {
-        videoRef.current.onloadedmetadata = null;
-      }
-    };
-  }, []);
+    const normalized_distance = (p1: any, p2: any) => {
+      const distance = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      const palmSize = Math.hypot(hand1[5].x - hand1[17].x, hand1[5].y - hand1[17].y);
+      return distance / palmSize;
+    }
+
+    const hand1Distance0 = normalized_distance(hand1[0], hand1[4]);
+    const hand2Distance0 = normalized_distance(hand2[0], hand2[4]);
+    const hand1Distance1 = normalized_distance(hand1[0], hand1[8]);
+    const hand2Distance1 = normalized_distance(hand2[0], hand2[8]);
+    const hand1Distance2 = normalized_distance(hand1[0], hand1[12]);
+    const hand2Distance2 = normalized_distance(hand2[0], hand2[12]);
+    const hand1Distance3 = normalized_distance(hand1[0], hand1[20]);
+    const hand2Distance3 = normalized_distance(hand2[0], hand2[20]);
+    
+    console.log("Hand 1 Ratios:", hand1Distance0, hand1Distance1, hand1Distance2, hand1Distance3);
+    console.log("Hand 2 Ratios:", hand2Distance0, hand2Distance1, hand2Distance2, hand2Distance3);
+  }
 
   return (
     <main className="flex items-center justify-center pt-16 pb-4">
